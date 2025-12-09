@@ -82,4 +82,3 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 
-# G2 Summary: Standalone Python script (`g2_bridge.py`) created. Uses the `even-glasses` library to connect to the G2 hardware. It polls the user for a query, sends it to the FastAPI `/query` endpoint, and pushes the formatted `g2_output` to the glasses' display.

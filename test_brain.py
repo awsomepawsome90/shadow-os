@@ -23,24 +23,23 @@ def main():
         
         # Check for a successful response.
         if response.status_code == 200:
-            print("\n--- ✅ SUCCESS ---")
+            print("\n--- [SUCCESS] ---")
             # Pretty-print the JSON response from the backend.
             response_data = response.json()
             print(json.dumps(response_data, indent=2))
         else:
-            print(f"\n--- ❌ ERROR ---")
+            print(f"\n--- [ERROR] ---")
             print(f"Status Code: {response.status_code}")
             print(f"Response: {response.text}")
 
     except requests.exceptions.ConnectionError:
-        print("\n--- ❌ CONNECTION ERROR ---")
+        print("\n--- [CONNECTION ERROR] ---")
         print("Could not connect to the backend. Is it running?")
         print("Start the backend with: uvicorn backend.main:app --reload")
     except Exception as e:
-        print(f"\n--- ❌ UNEXPECTED ERROR ---")
+        print(f"\n--- [UNEXPECTED ERROR] ---")
         print(f"An error occurred: {e}")
 
 if __name__ == "__main__":
     main()
 
-# G2 Summary: Test script `test_brain.py` created. It sends a hardcoded question to the FastAPI `/query` endpoint and pretty-prints the full JSON response, allowing verification of the RAG engine's output and G2 formatting.

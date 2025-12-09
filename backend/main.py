@@ -1,11 +1,12 @@
 import os
 import shutil
+import uuid
 import google.generativeai as genai
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
-from langchain_community.document_loaders import TextLoader
+from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_community.embeddings import SentenceTransformerEmbeddings
@@ -27,6 +28,8 @@ EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 CHROMA_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "chroma_db")
 UPLOADS_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "uploads")
 G2_OUTPUT_MAX_LENGTH = 200
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+MAX_QUESTION_LENGTH = 5000  # Chars
 
 # --- Generative AI Configuration ---
 # You must set your GEMINI_API_KEY in a .env file in the backend directory.
@@ -60,6 +63,25 @@ text_splitter = RecursiveCharacterTextSplitter(
 class QueryRequest(BaseModel):
     question: str
 
+    class Config:
+        max_length = MAX_QUESTION_LENGTH
+
+
+def _ensure_upload_dir() -> None:
+    """Guarantee uploads directory exists."""
+    os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+
+def _count_vectors() -> int:
+    """
+    Return approximate vector count in the collection.
+    Uses the underlying Chroma collection count for speed.
+    """
+    try:
+        return vectorstore._collection.count()  # type: ignore[attr-defined]
+    except Exception:
+        return 0
+
 # --- RAG Prompt Template ---
 # This template is key. It instructs the LLM to synthesize an answer
 # from the retrieved context.
@@ -85,22 +107,36 @@ rag_prompt = PromptTemplate.from_template(rag_template)
 @app.post("/ingest/")
 async def ingest_file(file: UploadFile = File(...)):
     """
-    Handles .txt file uploads, processes them, and stores them in ChromaDB.
+    Handles .txt and .pdf uploads, processes them, and stores chunks in ChromaDB.
     """
-    if not file.filename.endswith(".txt"):
-        raise HTTPException(status_code=400, detail="Only .txt files are supported.")
+    _ensure_upload_dir()
 
-    temp_file_path = os.path.join(UPLOADS_DIR, file.filename)
+    # Validate file extension
+    _, ext = os.path.splitext(file.filename.lower())
+    if ext not in {".txt", ".pdf"}:
+        raise HTTPException(status_code=400, detail="Only .txt and .pdf files are supported.")
+
+    # Validate file size
+    if file.size and file.size > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail=f"File too large. Max size: {MAX_UPLOAD_SIZE / 1024 / 1024:.0f} MB")
+
+    safe_filename = f"{uuid.uuid4()}{ext}"
+    temp_file_path = os.path.join(UPLOADS_DIR, safe_filename)
     try:
         with open(temp_file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        loader = TextLoader(temp_file_path, encoding="utf-8")
+        loader = TextLoader(temp_file_path, encoding="utf-8") if ext == ".txt" else PyPDFLoader(temp_file_path)
         documents = loader.load()
         docs = text_splitter.split_documents(documents)
         vectorstore.add_documents(docs, persist_directory=CHROMA_DB_PATH)
-        
-        return {"status": "success", "filename": file.filename, "chunks_added": len(docs)}
+
+        return {
+            "status": "success",
+            "filename": file.filename,
+            "chunks_added": len(docs),
+            "vector_count": _count_vectors(),
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
@@ -146,4 +182,33 @@ def query_engine(query: QueryRequest):
 def read_root():
     return {"message": "Shadow OS is online. Ready to receive intelligence."}
 
-# G2 Summary: FastAPI backend (`main.py`) created. Core endpoint `/ingest/` handles `.txt` uploads. It chunks text with `RecursiveCharacterTextSplitter` and embeds it into a persistent ChromaDB vector store using `all-MiniLM-L6-v2`.
+
+@app.get("/status/")
+def status():
+    """Lightweight health endpoint for front-end status indicator."""
+    return {
+        "status": "ok",
+        "vectors": _count_vectors(),
+        "embedding_model": EMBEDDING_MODEL_NAME,
+    }
+
+
+@app.get("/db/info")
+def db_info():
+    """Return basic database info for UI display."""
+    return {
+        "persist_directory": CHROMA_DB_PATH,
+        "vectors": _count_vectors(),
+        "embedding_model": EMBEDDING_MODEL_NAME,
+    }
+
+
+@app.post("/db/reset")
+def db_reset():
+    """Clear all vectors from the collection."""
+    try:
+        vectorstore._collection.delete(where={})  # type: ignore[attr-defined]
+        return {"status": "reset", "vectors": _count_vectors()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reset DB: {str(e)}")
+

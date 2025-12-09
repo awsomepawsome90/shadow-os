@@ -77,4 +77,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-# G2 Summary: Ingestion script `backend/ingest_docs.py` created. Scans the `/data` directory for `.txt` and `.pdf` files, splits them into chunks, and embeds them into the persistent ChromaDB vector store for the RAG engine.
