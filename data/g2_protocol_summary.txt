@@ -1,0 +1,1 @@
+The G2 glasses utilize a proprietary Bluetooth Low Energy (BLE) protocol for communication. The primary command for sending text to the display is initiated with a 0x4E header. Data must be fragmented into 194-byte packets to avoid buffer overflows. The even-realities/EvenDemoApp repository on GitHub is the primary source for reverse-engineering the protocol.
