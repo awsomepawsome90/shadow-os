@@ -19,6 +19,7 @@ build/
 # Environment variables (API keys)
 .env
 *.env.local
+!*.env.example
 
 # IDE / Editor
 .vscode/
@@ -42,6 +43,8 @@ logs/
 # Data (keep structure, ignore generated files)
 data/uploads/
 data/chroma_db/
+data/*.txt
+data/*.zip
 !data/.gitkeep
 
 # Jupyter
